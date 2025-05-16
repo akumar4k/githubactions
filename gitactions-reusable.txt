@@ -1,0 +1,77 @@
+rt-magna-api/.github/workflows/dev-deploy.yml
+=========================================================
+name: "DEV: Deploy Application to Azure"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat-*
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    environment: DEV
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4.1.0
+
+      - name: "Log into container registry"
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ vars.REGISTRY_URL }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build Docker images
+        run: docker compose build
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          REGISTRY_URL: ${{ vars.REGISTRY_URL }}
+
+      - name: Push Docker images
+        run: docker compose push
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          REGISTRY_URL: ${{ vars.REGISTRY_URL }}
+
+      - name: "Deploy to Azure Web App"
+        uses: "azure/webapps-deploy@v2"
+        with:
+          app-name: app-rts-dev-rt-magna-api-eastus2
+          images: ${{ vars.REGISTRY_URL }}rt-magna-api:${{ github.sha }}
+          publish-profile: ${{ secrets.PUBLISH_PROFILE }}
+==================================================================================================================
+
+ci-templates/.github/workflows/application-deploy.yml
+
+name: Reusable CI/CD Controller
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      target_branch:
+        required: true
+        type: string
+
+jobs:
+  trigger-repo-specific-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Trigger repo's deploy-${{ inputs.environment }}.yml
+        run: |
+          echo "Triggering deploy-${{ inputs.environment }}.yml in branch ${{ inputs.target_branch }}"
+
+          gh workflow run deploy-${{ inputs.environment }}.yml --ref ${{ inputs.target_branch }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
