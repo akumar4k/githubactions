@@ -1,0 +1,13 @@
+Developer pushes code ➝ triggers dev stage:
+
+Runs build + deploy
+
+Creates a GitHub Release (e.g., v1.0.3)
+
+Then:
+
+Waits for manual approval before promoting to UAT
+
+After UAT success, waits for another approval to deploy to Prod
+
+All using a single centralized ci-template.yml (reusable workflow).
