@@ -1,0 +1,114 @@
+Single centralized workflow (once, in org-workflows)
+
+Single wrapper (deploy-wrapper.yml) in each repo
+
+Use workflow_dispatch with inputs to choose the environment
+
+Centralized logic adapts based on environment input
+================================================
+ 1. In Each Repo → .github/workflows/deploy-wrapper.yml
+name: Deploy Application to Azure (All Envs)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment (e.g., dev, uat)"
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - uat
+
+jobs:
+  deploy:
+    uses: your-org/org-workflows/.github/workflows/deploy.yml@main
+    with:
+      environment: ${{ inputs.environment }}
+    secrets:
+      DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      NUGET_API_USER: ${{ secrets.NUGET_API_USER }}
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      PUBLISH_PROFILE: ${{ secrets.PUBLISH_PROFILE }}
+================================================================
+
+2. Centralized Reusable Workflow → org-workflows/.github/workflows/deploy.yml
+
+name: Central Deploy Workflow
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+    secrets:
+      DEPLOY_TOKEN:
+        required: true
+      REGISTRY_USERNAME:
+        required: true
+      REGISTRY_PASSWORD:
+        required: true
+      NUGET_API_USER:
+        required: true
+      NUGET_API_KEY:
+        required: true
+      PUBLISH_PROFILE:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Log into container registry
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ vars.REGISTRY_URL }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build Docker images
+        run: docker compose build --build-arg NUGET_API_USER=${{ secrets.NUGET_API_USER }} --build-arg NUGET_API_KEY=${{ secrets.NUGET_API_KEY }}
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          REGISTRY_URL: ${{ vars.REGISTRY_URL }}
+
+      - name: Push Docker images
+        run: docker compose push
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          REGISTRY_URL: ${{ vars.REGISTRY_URL }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: app-rts-demo-rt-clientportal-api-eastus2
+          images: ${{ vars.REGISTRY_URL }}rt-clientportal-api:${{ github.sha }}
+          publish-profile: ${{ secrets.PUBLISH_PROFILE }}
+========================
+
+Required Secrets
+In each repo (or via org-level secrets), define:
+
+DEPLOY_TOKEN
+
+REGISTRY_USERNAME
+
+REGISTRY_PASSWORD
+
+NUGET_API_USER
+
+NUGET_API_KEY
+
+PUBLISH_PROFILE
