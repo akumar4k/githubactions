@@ -1,0 +1,132 @@
+Perfect! Below is a complete setup for your centralized GitHub Actions release pipeline, with:
+
+✅ A full global workflow file
+
+✅ Sample calling workflow files (for dev, uat, and prod)
+
+✅ A global semantic versioning strategy
+1. Global Workflow File (in Central Repo)
+Repo: org/global-release-pipeline
+File: .github/workflows/release.yml
+
+name: Global Release Workflow
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      deploy_target:
+        required: true
+        type: string
+    secrets:
+      TOKEN:
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Version
+        id: versioning
+        run: |
+          DATE=$(date +%Y.%m.%d)
+          VERSION="${DATE}.${{ github.run_number }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build
+        run: echo "Building for ${{ inputs.environment }}..."
+
+      - name: Deploy
+        run: echo "Deploying to ${{ inputs.deploy_target }}..."
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.versioning.outputs.version }}
+          name: "${{ inputs.environment | title }} Release v${{ steps.versioning.outputs.version }}"
+          body: "Deployed to ${{ inputs.deploy_target }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+		  
+Go to Settings → Environments in the global repo and add an environment called production with required reviewers to enforce manual approval.
+
+dev-release.yml
+name: Dev Release
+
+on:
+  push:
+    branches: [dev]
+
+jobs:
+  call-global:
+    uses: org/global-release-pipeline/.github/workflows/release.yml@main
+    with:
+      environment: dev
+      deploy_target: dev.example.com
+    secrets:
+      TOKEN: ${{ secrets.GITHUB_TOKEN }}
+uat-release.yml
+
+name: UAT Release
+
+on:
+  push:
+    branches: [uat]
+
+jobs:
+  call-global:
+    uses: org/global-release-pipeline/.github/workflows/release.yml@main
+    with:
+      environment: uat
+      deploy_target: uat.example.com
+    secrets:
+      TOKEN: ${{ secrets.GITHUB_TOKEN }}
+	  
+prod-release.yml
+
+
+name: Production Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  call-global:
+    uses: org/global-release-pipeline/.github/workflows/release.yml@main
+    with:
+      environment: production
+      deploy_target: prod.example.com
+    secrets:
+      TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+The production job will pause and wait for manual approval through GitHub Environments.
+
+3. Global Semantic Versioning Strategy
+If you want to manage versions like v1.0.0, v1.0.1 etc. globally across all repos, instead of date-based versioning, replace the Set Version step with this:
+- name: Bump Version
+  id: bump
+  uses: mathieudutour/github-tag-action@v6.1
+  with:
+    github_token: ${{ secrets.TOKEN }}
+    default_bump: patch
+    tag_prefix: v
+
+And then in the Create Release step:
+
+- name: Create GitHub Release
+  uses: softprops/action-gh-release@v1
+  with:
+    tag_name: ${{ steps.bump.outputs.new_tag }}
+    name: "${{ inputs.environment | title }} Release ${{ steps.bump.outputs.new_tag }}"
+    body: "Deployed to ${{ inputs.deploy_target }}"
+  env:
+    GITHUB_TOKEN: ${{ secrets.TOKEN }}
