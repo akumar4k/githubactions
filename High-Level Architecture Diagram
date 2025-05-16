@@ -1,0 +1,35 @@
+
+High-Level Architecture Diagram
+                        +-------------------+
+                        |    Developers     |
+                        +--------+----------+
+                                 |
+                             GitOps (ArgoCD/Tekton)
+                                 |
+               +----------------v----------------+
+               |         CI/CD Pipelines         |
+               +--------+-----------+------------+
+                        |           |
+         +--------------v-+       +-v--------------+
+         | Helm/Kustomize |       |   Harbor Repo  |
+         +-------+--------+       +--------+--------+
+                 |                         |
+         +-------v-------------------------v--------+
+         |             Kubernetes Cluster           |
+         |    (AKS/EKS/GKE - CNCF conformant)       |
+         +---------+-------------+------------------+
+                   |             |
+           +-------v--+       +--v--------+
+           | Istio/SM |       | Ingress   |
+           +----------+       +-----------+
+                   |
+    +--------------v------------------------------+
+    |       Microservices (Pods, Services)        |
+    +-------+------------+-------------+----------+
+            |            |             |
+        +---v---+    +---v---+     +---v---+
+        | DB(s) |    | Vault |     | Redis |
+        +-------+    +-------+     +-------+
+
+  Observability: Prometheus + Grafana, Loki, Jaeger
+  Security: OPA, Kyverno, Falco, Trivy, RBAC, mTLS
