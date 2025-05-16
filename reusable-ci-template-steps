@@ -11,3 +11,153 @@ Waits for manual approval before promoting to UAT
 After UAT success, waits for another approval to deploy to Prod
 
 All using a single centralized ci-template.yml (reusable workflow).
+=======================================================================
+ 1. Each Repo → .github/workflows/deploy-wrapper.yml
+name: Environment Deploy Wrapper
+
+on:
+  push:
+    branches:
+      - dev
+      - uat
+      - prod
+
+jobs:
+  deploy:
+    uses: your-org/org-workflows/.github/workflows/ci-template.yml@main
+    with:
+      service_name: ${{ github.event.repository.name }}   #  Auto from repo name
+      environment: ${{ github.ref_name }}
+    secrets:
+      DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      NUGET_API_USER: ${{ secrets.NUGET_API_USER }}
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      PUBLISH_PROFILE_DEV: ${{ secrets.PUBLISH_PROFILE_DEV }}
+      PUBLISH_PROFILE_UAT: ${{ secrets.PUBLISH_PROFILE_UAT }}
+      PUBLISH_PROFILE_PROD: ${{ secrets.PUBLISH_PROFILE_PROD }}
+
+==========================================================================
+ 2. Central Reusable Workflow → org-workflows/.github/workflows/ci-template.yml
+name: Reusable CI/CD Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+    secrets:
+      DEPLOY_TOKEN:
+        required: true
+      REGISTRY_USERNAME:
+        required: true
+      REGISTRY_PASSWORD:
+        required: true
+      NUGET_API_USER:
+        required: true
+      NUGET_API_KEY:
+        required: true
+      PUBLISH_PROFILE_DEV:
+        required: true
+      PUBLISH_PROFILE_UAT:
+        required: true
+      PUBLISH_PROFILE_PROD:
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+
+  ### 🔧 Build & Deploy to DEV
+  dev:
+    name: Build & Deploy to Dev
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log into container registry
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ vars.REGISTRY_URL }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build Docker Images
+        run: docker compose build --build-arg NUGET_API_USER=${{ secrets.NUGET_API_USER }} --build-arg NUGET_API_KEY=${{ secrets.NUGET_API_KEY }}
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          REGISTRY_URL: ${{ vars.REGISTRY_URL }}
+
+      - name: Push Docker Images
+        run: docker compose push
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          REGISTRY_URL: ${{ vars.REGISTRY_URL }}
+
+      - name: Deploy to Dev Web App
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: app-${{ inputs.service_name }}-dev
+          images: ${{ vars.REGISTRY_URL }}${{ inputs.service_name }}:${{ github.sha }}
+          publish-profile: ${{ secrets.PUBLISH_PROFILE_DEV }}
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v1.0.${{ github.run_number }}
+          name: Release v1.0.${{ github.run_number }}
+          body: Auto-created by CI
+
+  ### ✅ Deploy to UAT (with approval)
+  uat:
+    name: Deploy to UAT
+    needs: dev
+    runs-on: ubuntu-latest
+    environment:
+      name: uat
+      url: https://uat.example.com
+      deployment_branch_policy: true
+    steps:
+      - name: Deploy to UAT Web App
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: app-${{ inputs.service_name }}-uat
+          images: ${{ vars.REGISTRY_URL }}${{ inputs.service_name }}:${{ github.sha }}
+          publish-profile: ${{ secrets.PUBLISH_PROFILE_UAT }}
+
+  ### ✅ Deploy to PROD (with approval)
+  prod:
+    name: Deploy to Prod
+    needs: uat
+    runs-on: ubuntu-latest
+    environment:
+      name: prod
+      url: https://prod.example.com
+      deployment_branch_policy: true
+    steps:
+      - name: Deploy to Prod Web App
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: app-${{ inputs.service_name }}-prod
+          images: ${{ vars.REGISTRY_URL }}${{ inputs.service_name }}:${{ github.sha }}
+          publish-profile: ${{ secrets.PUBLISH_PROFILE_PROD }}
+===============================================================================
+GitHub Environments & Approvals
+Go to your repo → Settings → Environments
+
+Create environments:
+
+dev → no protection
+
+uat → require manual approval
+
+prod → require manual approval
+
+Add approvers for UAT and PROD
+
